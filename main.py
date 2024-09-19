@@ -14,22 +14,19 @@ from cmd_update import do_update
 from cmd_upgrade import do_upgrade
 from lib.log import LogLevel, console, log, log_error, log_list, log_title
 
-root_path = Path(__file__).resolve().parent
-
 parser = argparse.ArgumentParser()
 parser.add_argument("-c", "--config", type=str, default=None, help="config file path")
 parser.add_argument("command", type=str, help="command to run")
 parser.add_argument("args", nargs=argparse.REMAINDER, help="args for command")
 args = parser.parse_args()
 
+if (args.config is None) or (not Path(args.config).exists):
+    log.error("Config file not found")
+    sys.exit(1)
+with open(args.config, "r", encoding="utf8") as f:
+    config = tomlkit.parse(f.read())
 
-def read_config() -> dict:
-    if (args.config is None) or (not Path(args.config).exists):
-        log.error("Config file not found")
-        sys.exit(1)
-    with open(args.config, "r", encoding="utf8") as f:
-        config = tomlkit.parse(f.read())
-        return config
+HOME = Path(config["path"]["home"]).resolve()
 
 
 def save_config(config: dict):
@@ -46,7 +43,7 @@ def _enable(config: dict, scripts: list[Path], args: list[str]):
         enabled = [x.stem for x in scripts]
     else:
         for script in args:
-            path = root_path / "scripts" / f"{script}.py"
+            path = HOME / "scripts" / f"{script}.py"
             if not path.exists():
                 log.warning(f"Script {script} not found")
                 continue
@@ -90,8 +87,7 @@ def _list(scripts: list[Path], config: dict, args: list[str]):
 
 
 def main(command: str, args: list[str]):
-    config = read_config()
-    scripts = [*(root_path / "scripts").glob("**/*.py")]
+    scripts = [*(HOME / "scripts").glob("**/*.py")]
     enabled_scripts = [x for x in scripts if x.stem in config["script"]["enabled"]]
 
     if command == "update":

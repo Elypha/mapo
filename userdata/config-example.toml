@@ -1,6 +1,7 @@
 [path]
 # your data path where all scripts will install to
-data = "E:/mapo"
+data = "/home/mapo"
+home = "/usr/local/mapo"
 
 [worker]
 update = 4
