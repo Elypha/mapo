@@ -51,6 +51,9 @@ def _enable(config: dict, scripts: list[Path], args: list[str]):
         log_title("Enabled scripts")
         log_list(enabled)
         save_config(config)
+    else:
+        log.warning("Nothing to enable")
+        sys.exit(0)
 
 
 def _disable(config: dict, scripts: list[Path], args: list[str]):
@@ -68,6 +71,9 @@ def _disable(config: dict, scripts: list[Path], args: list[str]):
         log_title("Disabled scripts")
         log_list(disabled)
         save_config(config)
+    else:
+        log.warning("Nothing to disable")
+        sys.exit(0)
 
 
 def _list(scripts: list[Path], config: dict, args: list[str]):
