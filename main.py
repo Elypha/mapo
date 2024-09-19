@@ -35,11 +35,8 @@ def save_config(config: dict):
 
 
 def _enable(config: dict, scripts: list[Path], args: list[str]):
-    if len(args) == 0:
-        log.error("No scripts specified")
-        sys.exit(1)
     enabled = []
-    if args[0] == "*":
+    if args == []:
         enabled = [x.stem for x in scripts]
     else:
         for script in args:
@@ -57,11 +54,8 @@ def _enable(config: dict, scripts: list[Path], args: list[str]):
 
 
 def _disable(config: dict, scripts: list[Path], args: list[str]):
-    if len(args) == 0:
-        log.error("No scripts specified")
-        sys.exit(1)
     disabled = []
-    if args[0] == "*":
+    if args == []:
         disabled = config["script"]["enabled"]
         config["script"]["enabled"] = []
     else:
