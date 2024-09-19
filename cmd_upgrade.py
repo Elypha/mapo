@@ -1,3 +1,4 @@
+import multiprocessing
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -5,14 +6,16 @@ from pathlib import Path
 
 from rich import progress
 
-from lib.helper import Cache, load_script
+from lib.helper import Cache, SummaryProgress, load_script
 from lib.log import LogLevel, console, log, log_error, log_list, log_title
 
 
-def do_task(script: Path, config: dict, cache: Cache):
+def do_task(_p_stats: dict, task_id: int, script: Path, config: dict, cache: Cache):
     try:
         module = load_script(script)
         module.upgrade(
+            _p_stats,
+            task_id,
             script,
             config,
             cache,
@@ -28,10 +31,10 @@ def do_task(script: Path, config: dict, cache: Cache):
         raise Exception(f"during upgrade: {e=}\n{script=}")
 
 
-def batch_do_check(_prog: progress.Progress, executor: ProcessPoolExecutor, scripts: list[Path], config: dict):
-    futures = []
-    p_task_total = _prog.add_task("[cyan3]Total:")
+def batch_do_check(_prog: progress.Progress, _p_stats: dict, executor: ProcessPoolExecutor, scripts: list[Path], config: dict):
+    p_task_summary = _prog.add_task("summary", total=len(scripts), progress_type="summary")
 
+    futures = []
     for i in range(0, len(scripts)):
         cache = Cache(scripts[i].parent.parent / f"cache/{scripts[i].stem}.json")
         # skip if already latest
@@ -40,7 +43,13 @@ def batch_do_check(_prog: progress.Progress, executor: ProcessPoolExecutor, scri
         if cache["remote_version"] == latest_version:
             continue
         # task
-        futures.append(executor.submit(do_task, scripts[i], config, cache))
+        task_id = _prog.add_task(
+            f"{scripts[i].stem}",
+            visible=False,
+            progress_type="download",
+        )
+        futures.append(executor.submit(do_task, _p_stats, task_id, scripts[i], config, cache))
+    _prog.update(p_task_summary, total=len(futures))
 
     while True:
         # check if any futures are done
@@ -53,7 +62,18 @@ def batch_do_check(_prog: progress.Progress, executor: ProcessPoolExecutor, scri
                 future.cancel()
             raise e
         # update progress
-        _prog.update(p_task_total, completed=len(finished_futures), total=len(futures))
+        _prog.update(
+            p_task_summary,
+            completed=len(finished_futures),
+            total=len(futures),
+        )
+        for task_id, (completed, total) in _p_stats.items():
+            _prog.update(
+                task_id,
+                completed=completed,
+                total=total,
+                visible=completed < total,
+            )
         # stop if all futures are done
         if len(finished_futures) == len(futures):
             break
@@ -65,7 +85,7 @@ def do_upgrade(scripts: list[Path], config: dict, args: list[str]):
     max_workers = config["worker"]["upgrade"]
 
     try:
-        with progress.Progress(
+        with SummaryProgress(
             "[progress.description]{task.description}",
             progress.BarColumn(bar_width=None),
             "[progress.percentage]{task.percentage:>3.0f}%",
@@ -74,7 +94,9 @@ def do_upgrade(scripts: list[Path], config: dict, args: list[str]):
             refresh_per_second=5,
         ) as _prog:
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                futures = batch_do_check(_prog, executor, scripts, config)
+                with multiprocessing.Manager() as manager:
+                    _p_stats = manager.dict()
+                    futures = batch_do_check(_prog, _p_stats, executor, scripts, config)
 
         # show upgraded scripts
         results = [x.result() for x in futures]

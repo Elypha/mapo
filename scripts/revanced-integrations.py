@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 import orjson
-import rich.progress
+from rich import progress
 
 client = httpx.Client()
 
@@ -17,12 +17,15 @@ def update_link(target: Path):
     path_latest.symlink_to(target, target_is_directory=True)
 
 
-def update(script: Path, config: dict, cache: dict):
+def update(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
     # fetch remote
+    _p_stats[task_id] = (0, 2)
     url = "https://api.github.com/repos/crimera/revanced-integrations/releases/latest"
     response = client.get(url, follow_redirects=True)
+    _p_stats[task_id] = (1, 2)
     response.raise_for_status()
     data = response.json()
+    # data = data[0]
 
     # remote_version
     remote_version = data["tag_name"].lower().replace("v", "")
@@ -41,9 +44,11 @@ def update(script: Path, config: dict, cache: dict):
     cache["download_url"] = download_url
 
     cache.save()
+    _p_stats[task_id] = (2, 2)
 
 
-def install(script: Path, config: dict, cache: dict):
+def install(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
+    _p_stats[task_id] = (0, 1)
     # args
     path_app = Path(config["path"]["data"]) / script.stem
 
@@ -56,34 +61,26 @@ def install(script: Path, config: dict, cache: dict):
     path_tempFile.unlink(missing_ok=True)
     with open(path_tempFile, "wb") as f:
         with client.stream("GET", cache["download_url"], follow_redirects=True) as response:
-            total = int(response.headers["Content-Length"])
-
-            with rich.progress.Progress(
-                "[progress.description]{task.description}",
-                rich.progress.BarColumn(bar_width=None),
-                "[progress.percentage]{task.percentage:>3.0f}%",
-                rich.progress.DownloadColumn(),
-                rich.progress.TransferSpeedColumn(),
-            ) as progress:
-                download_task = progress.add_task(path_app.name, total=total)
-                for chunk in response.iter_bytes():
-                    f.write(chunk)
-                    progress.update(download_task, completed=response.num_bytes_downloaded)
+            total = int(response.headers["Content-Length"]) + 1
+            for chunk in response.iter_bytes():
+                f.write(chunk)
+                _p_stats[task_id] = (response.num_bytes_downloaded, total)
 
     # install
     path_tempFile.rename(path_remote / f"{path_app.name}.apk")
     update_link(path_remote)
+    _p_stats[task_id] = (total + 1, total + 1)
 
 
-def uninstall(script: Path, config: dict, cache: dict):
+def uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
     # args
     path_app = Path(config["path"]["data"]) / script.stem
 
     shutil.rmtree(path_app)
 
 
-def upgrade(script: Path, config: dict, cache: dict):
-    install(script, config)
+def upgrade(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
+    install(_p_stats, task_id, script, config, cache)
 
 
 if __name__ == "__main__":
