@@ -84,6 +84,8 @@ def do_install(scripts: list[Path], config: dict, args: list[str]):
     max_workers = config["worker"]["install"]
 
     try:
+        log_title(f"Installing {len(scripts)} scripts")
+
         with SummaryProgress(
             "[progress.description]{task.description}",
             progress.BarColumn(bar_width=None),
@@ -99,7 +101,7 @@ def do_install(scripts: list[Path], config: dict, args: list[str]):
 
         # show installed scripts
         results = [x.result() for x in futures]
-        log_title(f"Installed {len(results)} scripts")
+        log_title(f"{len(results)} installed")
         log_list([f"{x[0]}: {x[1]}" for x in results])
 
     except Exception as e:

@@ -85,6 +85,8 @@ def do_upgrade(scripts: list[Path], config: dict, args: list[str]):
     max_workers = config["worker"]["upgrade"]
 
     try:
+        log_title(f"Checking for updates for {len(scripts)} script")
+
         with SummaryProgress(
             "[progress.description]{task.description}",
             progress.BarColumn(bar_width=None),
@@ -100,7 +102,7 @@ def do_upgrade(scripts: list[Path], config: dict, args: list[str]):
 
         # show upgraded scripts
         results = [x.result() for x in futures]
-        log_title(f"Upgraded {len(results)} scripts")
+        log_title(f"{len(results)} upgraded")
         log_list([f"{x[0]}: {x[1]}" for x in results])
 
     except Exception as e:

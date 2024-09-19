@@ -108,7 +108,7 @@ def do_update(scripts: list[Path], config: dict, args: list[str]):
             name, latest_version, remote_version = future.result()
             if remote_version != latest_version:
                 results.append((name, latest_version, remote_version))
-        log_title(f"{len(results)} update available")
+        log_title(f"{len(results)} available updates")
         log_list([f"{x[0]}: {x[1]} -> {x[2]}" for x in results])
 
     except Exception as e:
