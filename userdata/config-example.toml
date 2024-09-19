@@ -1,0 +1,11 @@
+[path]
+# your data path where all scripts will install to
+data = "E:/mapo"
+
+[worker]
+update = 4
+install = 4
+upgrade = 4
+
+[script]
+enabled = []
