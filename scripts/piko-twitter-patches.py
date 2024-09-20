@@ -8,7 +8,7 @@ import httpx
 import orjson
 from rich import progress
 
-from lib.helper import client, single_install_move, single_uninstall, single_update, update_link
+from lib.helper import client, grant, single_install_move, single_uninstall, single_update, update_link
 from lib.log import LogLevel, console, log, log_error, log_list, log_title
 
 

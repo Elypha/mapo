@@ -8,7 +8,7 @@ import httpx
 import orjson
 from rich import progress
 
-from lib.helper import client, single_install_move, single_uninstall, single_update, update_link
+from lib.helper import client, grant, single_install_move, single_uninstall, single_update, update_link
 from lib.log import LogLevel, console, log, log_error, log_list, log_title
 
 
@@ -36,6 +36,10 @@ def install(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dic
         "save_name": f"{script.stem}" + (".exe" if platform.system() == "Windows" else ""),
     }
     single_install_move(_p_stats, task_id, script, config, cache, args)
+    # permissions
+    if platform.system() == "Linux":
+        path_app = Path(config["path"]["data"]) / script.stem
+        grant(path_app.glob("**/apkeep"), mode=0o755)
 
 
 def uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):

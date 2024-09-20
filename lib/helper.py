@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import platform
 import re
 import shutil
@@ -186,3 +187,16 @@ def single_uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, c
 
     # uninstall
     shutil.rmtree(path_app)
+
+
+def grant(files: list[Path], user: int = None, group: int = None, mode: int = None):
+    if user == -1:
+        user = os.getuid()
+    if group == -1:
+        group = os.getgid()
+
+    for file in files:
+        if (user is not None) and (group is not None):
+            file.resolve().chown(user, group)
+        if mode is not None:
+            file.resolve().chmod(mode)
