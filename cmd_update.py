@@ -38,7 +38,7 @@ def do_task(_p_stats: dict, task_id: int, script: Path, config: dict, cache: Cac
         raise Exception(f"during update: {e=}\n{script=}")
 
 
-def batch_do_check(_prog: progress.Progress, _p_stats: dict, executor: ProcessPoolExecutor, scripts: list[Path], config: dict):
+def batch_do_task(_prog: progress.Progress, _p_stats: dict, executor: ProcessPoolExecutor, scripts: list[Path], config: dict):
     p_task_summary = _prog.add_task("summary", total=len(scripts), progress_type="summary")
 
     futures = []
@@ -87,7 +87,8 @@ def do_update(scripts: list[Path], config: dict, args: list[str]):
     max_workers = config["worker"]["update"]
 
     try:
-        log_title(f"Checking for updates for {len(scripts)} script")
+        # before progress bar
+        log_title(f"Checking for updates for {len(scripts)} scripts")
 
         with SummaryProgress(
             "[progress.description]{task.description}",
@@ -100,7 +101,7 @@ def do_update(scripts: list[Path], config: dict, args: list[str]):
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 with multiprocessing.Manager() as manager:
                     _p_stats = manager.dict()
-                    futures = batch_do_check(_prog, _p_stats, executor, scripts, config)
+                    futures = batch_do_task(_prog, _p_stats, executor, scripts, config)
 
         # show available updates
         results = []

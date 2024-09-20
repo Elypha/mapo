@@ -31,13 +31,13 @@ def do_task(_p_stats: dict, task_id: int, script: Path, config: dict, cache: Cac
         raise Exception(f"during install: {e=}\n{script=}")
 
 
-def batch_do_check(_prog: progress.Progress, _p_stats: dict, executor: ProcessPoolExecutor, scripts: list[Path], config: dict):
+def batch_do_task(_prog: progress.Progress, _p_stats: dict, executor: ProcessPoolExecutor, scripts: list[Path], config: dict):
     p_task_summary = _prog.add_task("summary", total=len(scripts), progress_type="summary")
 
     futures = []
     for i in range(0, len(scripts)):
         cache = Cache(scripts[i].parent.parent / f"cache/{scripts[i].stem}.json")
-        # skip if already installed
+        # if path_app exists, skip
         path_app = Path(config["path"]["data"]) / scripts[i].stem
         if path_app.exists():
             continue
@@ -84,6 +84,7 @@ def do_install(scripts: list[Path], config: dict, args: list[str]):
     max_workers = config["worker"]["install"]
 
     try:
+        # before progress bar
         log_title(f"Installing {len(scripts)} scripts")
 
         with SummaryProgress(
@@ -97,11 +98,11 @@ def do_install(scripts: list[Path], config: dict, args: list[str]):
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
                 with multiprocessing.Manager() as manager:
                     _p_stats = manager.dict()
-                    futures = batch_do_check(_prog, _p_stats, executor, scripts, config)
+                    futures = batch_do_task(_prog, _p_stats, executor, scripts, config)
 
         # show installed scripts
         results = [x.result() for x in futures]
-        log_title(f"{len(results)} installed")
+        log_title(f"{len(results)} installed, {len(scripts) - len(results)} skipped")
         log_list([f"{x[0]}: {x[1]}" for x in results])
 
     except Exception as e:

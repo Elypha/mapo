@@ -1,18 +1,21 @@
 import importlib.util
+import platform
+import re
+import shutil
+import sys
 from pathlib import Path
-from rich import progress
 
+import httpx
 import orjson
+from rich import progress
 
 from lib.log import console, log
 
-
-def load_script(script: Path):
-    name = f"{script.stem}"
-    spec = importlib.util.spec_from_file_location(name, str(script))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+client = httpx.Client(
+    headers={
+        "User-Agent": f"Mapo/0.1 (Python {platform.python_version()}, httpx/{httpx.__version__}; {platform.system()} {platform.release()}) +github.com/Elypha/Mapo",
+    }
+)
 
 
 class Cache(dict):
@@ -87,3 +90,99 @@ class SummaryProgress(progress.Progress):
                     progress.TimeRemainingColumn(),
                 )
             yield self.make_tasks_table([task])
+
+
+def load_script(script: Path):
+    name = f"{script.stem}"
+    spec = importlib.util.spec_from_file_location(name, str(script))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def update_link(target: Path, name: str = "latest"):
+    path_latest = target.parent / name
+    if path_latest.exists():
+        path_latest.unlink()
+    path_latest.symlink_to(target, target_is_directory=True)
+
+
+def single_update(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict, args: dict):
+    # args
+    url: str = args["url"]
+    regex_asset: re.Pattern = args["regex_asset"]
+    regex_version: re.Pattern = args["regex_version"]
+
+    # fetch remote
+    _p_stats[task_id] = (0, 2)
+    response = client.get(url, follow_redirects=True)
+    response.raise_for_status()
+
+    # process data
+    _p_stats[task_id] = (1, 2)
+    data = response.json()
+
+    # [+] github
+    if "api.github.com" in url:
+        if isinstance(data, list):
+            data = data[0]
+        # remote version
+        remote_version = regex_version.search(data["tag_name"]).group("version")
+        if remote_version is None:
+            log.error(f"no matching remote_version for {script.stem}")
+            sys.exit(1)
+        cache["remote_version"] = remote_version
+        # download_url
+        download_url = None
+        for asset in data["assets"]:
+            if regex_asset.match(asset["name"]):
+                download_url = asset["browser_download_url"]
+                break
+        if download_url is None:
+            log.error(f"no matching download_url for {script.stem}@{remote_version}")
+            sys.exit(1)
+        cache["download_url"] = download_url
+
+    # finish
+    cache.save()
+    _p_stats[task_id] = (2, 2)
+
+
+def single_install_move(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict, args: dict):
+    # args
+    save_name: str = args["save_name"]
+
+    # prepare remote dir
+    _p_stats[task_id] = (0, 1)
+    path_app = Path(config["path"]["data"]) / script.stem
+    path_remote = path_app / cache["remote_version"]
+    path_remote.mkdir(parents=True)
+
+    # download
+    path_tempFile = path_app / f"temp_{cache['remote_version']}"
+    path_tempFile.unlink(missing_ok=True)
+    with open(path_tempFile, "wb") as f:
+        with client.stream("GET", cache["download_url"], follow_redirects=True) as response:
+            if "Content-Length" in response.headers:
+                total = int(response.headers["Content-Length"]) + 1
+                for chunk in response.iter_bytes():
+                    f.write(chunk)
+                    _p_stats[task_id] = (response.num_bytes_downloaded, total)
+            else:
+                for chunk in response.iter_bytes():
+                    f.write(chunk)
+                    total = response.num_bytes_downloaded
+                    _p_stats[task_id] = (total, total + 1)
+
+    # install
+    path_tempFile.rename(path_remote / save_name)
+    update_link(path_remote)
+    _p_stats[task_id] = (total + 1, total + 1)
+
+
+def single_uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
+    # args
+    path_app = Path(config["path"]["data"]) / script.stem
+
+    # uninstall
+    shutil.rmtree(path_app)
