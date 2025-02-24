@@ -1,119 +1,203 @@
 import argparse
-import importlib.util
-import os
-import subprocess
+import multiprocessing
 import sys
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import tomlkit
+from rich import progress
 
-from cmd_install import do_install
-from cmd_update import do_update
-from cmd_upgrade import do_upgrade
-from lib.log import LogLevel, console, log, log_error, log_list, log_title
-
-parser = argparse.ArgumentParser()
-parser.add_argument("-c", "--config", type=str, default=None, help="config file path")
-parser.add_argument("command", type=str, help="command to run")
-parser.add_argument("args", nargs=argparse.REMAINDER, help="args for command")
-args = parser.parse_args()
-
-if (args.config is None) or (not Path(args.config).exists):
-    log.error("Config file not found")
-    sys.exit(1)
-with open(args.config, "r", encoding="utf8") as f:
-    config = tomlkit.parse(f.read())
-
-HOME = Path(config["path"]["home"]).resolve()
+from lib.batch_task import batch_task_runner, task_runner
+from lib.config import MapoConfig, Script
+from lib.helper import SummaryProgress
+from lib.log import console, log, print_list, print_title
 
 
-def save_config(config: dict):
-    with open(args.config, "w", encoding="utf8") as f:
-        tomlkit.dump(config, f)
+class Mapo:
+    def __init__(self, args: argparse.Namespace):
+        self._args = args
+        self._config_path = self._get_config_path()
+        self.config = MapoConfig(self._config_path)
+        self.scripts = [Script(x, self.config) for x in self.config.scripts_dir.glob("*.py")]
 
+    def _get_config_path(self) -> Path:
+        config_paths: list[Path] = []
+        config_paths.append(Path(self._args.config))  # add user input path
 
-def _enable(config: dict, scripts: list[Path], args: list[str]):
-    enabled = []
-    if args == []:
-        enabled = [x.stem for x in scripts]
-    else:
-        for script in args:
-            path = HOME / "scripts" / f"{script}.py"
-            if not path.exists():
-                log.warning(f"Script {script} not found")
-                continue
-            enabled.append(script)
-    enabled = [x for x in enabled if x not in config["script"]["enabled"]]
-    if len(enabled) > 0:
-        config["script"]["enabled"].extend(enabled)
-        log_title("Enabled scripts")
-        log_list(enabled)
-        save_config(config)
-    else:
-        log.warning("Nothing to enable")
-        sys.exit(0)
+        # add default paths by os
+        # WIP
 
+        # check if any of the paths exist
+        for x in config_paths:
+            if x.is_file() and x.exists():
+                return x
+        log.error(f"Cannot find any config file at the following paths: {config_paths}")
+        exit(1)
 
-def _disable(config: dict, scripts: list[Path], args: list[str]):
-    disabled = []
-    if args == []:
-        disabled = config["script"]["enabled"]
-        config["script"]["enabled"] = []
-    else:
-        for script in args:
-            if script not in config["script"]["enabled"]:
-                continue
-            config["script"]["enabled"].remove(script)
-            disabled.append(script)
-    if len(disabled) > 0:
-        log_title("Disabled scripts")
-        log_list(disabled)
-        save_config(config)
-    else:
-        log.warning("Nothing to disable")
-        sys.exit(0)
+    def enable_script(self, name: str):
+        if name not in self.config.valid_script_names:
+            log.error(f"Script '{name}' not found")
+            exit(1)
+        self.config.enabled_scripts.add(name)
+        self.config.save()
+        self.config.load()
+        log.success(f"'{name}' enabled.")
 
+    def disable_script(self, name: str):
+        if name not in self.config.valid_script_names:
+            log.error(f"Script '{name}' not found")
+            exit(1)
+        self.config.enabled_scripts.discard(name)
+        self.config.save()
+        self.config.load()
+        log.success(f"'{name}' disabled.")
 
-def _list(scripts: list[Path], config: dict, args: list[str]):
-    log_title("Available scripts")
-    for script in scripts:
-        item = script.stem
-        if item in config["script"]["enabled"]:
-            console.print(f"+ {item}", style="bright_green")
+    def list_scripts(self, include_disabled: bool = False):
+        target_scripts = [x for x in self.scripts if include_disabled or x.enabled]
+        for x in target_scripts:
+            if x.enabled:
+                console.print(f"+ {x.name}", style="bright_green")
+            else:
+                console.print(f"- {x.name}", style="light_coral")
+
+    def run_update(self, target_scripts: list[Script]):
+        try:
+            # before progress bar
+            print_title(f"Checking for updates for {len(target_scripts)} scripts")
+
+            # prepare tasks
+            tasks = []
+            for x in target_scripts:
+                tasks.append(
+                    {
+                        "name": x.name,
+                        "task_id": None,
+                        "data": {
+                            "script": x,
+                            "target": "update",
+                        },
+                    }
+                )
+
+            with SummaryProgress(
+                "[progress.description]{task.description}",
+                progress.BarColumn(bar_width=None),
+                "[progress.percentage]{task.percentage:>3.0f}%",
+                progress.TimeRemainingColumn(),
+                progress.TimeElapsedColumn(),
+                refresh_per_second=5,
+            ) as p_bar:
+                with ProcessPoolExecutor(max_workers=self.config.worker_update) as executor:
+                    with multiprocessing.Manager() as manager:
+                        ipc_dict = manager.dict()
+                        futures = batch_task_runner(p_bar, executor, ipc_dict, self.config, tasks)
+
+            # summary
+            count = 0
+            for future in futures:
+                result = future.result()
+                if result["v0"] != result["v1"]:
+                    console.print(f"+ {result['name']}: {result['v0']} -> {result['v1']}", style="bright_cyan")
+                    count += 1
+            if count > 0:
+                console.print(f"{count} updated", style="bright_cyan")
+
+        except Exception as e:
+            log.exception(e)
+            exit(1)
+
+    def run_upgrade(self, target_scripts: list[Script]):
+        try:
+            # before progress bar
+            print_title(f"Upgrade {len(target_scripts)} scripts")
+
+            # prepare tasks
+            tasks = []
+            for x in target_scripts:
+                tasks.append(
+                    {
+                        "name": x.name,
+                        "task_id": None,
+                        "data": {
+                            "script": x,
+                            "target": "upgrade",
+                        },
+                    }
+                )
+
+            with SummaryProgress(
+                "[progress.description]{task.description}",
+                progress.BarColumn(bar_width=None),
+                "[progress.percentage]{task.percentage:>3.0f}%",
+                progress.TimeRemainingColumn(),
+                progress.TimeElapsedColumn(),
+                refresh_per_second=5,
+            ) as p_bar:
+                with ProcessPoolExecutor(max_workers=self.config.worker_upgrade) as executor:
+                    with multiprocessing.Manager() as manager:
+                        ipc_dict = manager.dict()
+                        futures = batch_task_runner(p_bar, executor, ipc_dict, self.config, tasks)
+
+            # summary
+            count = 0
+            for future in futures:
+                result = future.result()
+                console.print(f"+ {result['name']}: {x.local_version_latest} -> {result['v1']}", style="bright_cyan")
+                count += 1
+            if count > 0:
+                console.print(f"{count} updated", style="bright_cyan")
+
+        except Exception as e:
+            log.exception(e)
+            exit(1)
+
+    def run(self):
+        entry: str = self._args.command
+        args: list = self._args.args
+
+        if entry == "update":
+            if "--all" in args or "-a" in args:
+                self.run_update(self.scripts)
+            else:
+                self.run_update([x for x in self.scripts if x.enabled])
+        # elif entry == "install":
+        #     if len(args) == 0:
+        #         filtered_scripts = [x for x in self.config.scripts if x.enabled]
+        #     else:
+        #         filtered_scripts = [x for x in self.config.scripts if x.name in args]
+        #     do_install(filtered_scripts, self.config, args)
+        elif entry == "upgrade":
+            if len(args) == 0:
+                self.run_upgrade([x for x in self.scripts if x.enabled and x.has_update])
+            else:
+                self.run_upgrade([x for x in self.scripts if (x.name in args) and x.has_update])
+        elif entry == "enable":
+            for x in args:
+                self.enable_script(x)
+        elif entry == "disable":
+            for x in args:
+                self.disable_script(x)
+        elif entry == "list":
+            if "--all" in args or "-a" in args:
+                self.list_scripts(include_disabled=True)
+            else:
+                self.list_scripts()
+        elif entry == "show":
+            if "--all" in args or "-a" in args:
+                self.list_scripts(include_disabled=True)
+            else:
+                self.list_scripts()
         else:
-            console.print(f"- {item}", style="light_coral")
-
-
-def main(command: str, args: list[str]):
-    scripts = [*(HOME / "scripts").glob("**/*.py")]
-    enabled_scripts = [x for x in scripts if x.stem in config["script"]["enabled"]]
-
-    if command == "update":
-        do_update(enabled_scripts, config, args)
-    elif command == "install":
-        if len(args) == 0:
-            filtered_scripts = enabled_scripts
-        else:
-            filtered_scripts = [x for x in enabled_scripts if x.stem in args]
-        do_install(filtered_scripts, config, args)
-    elif command == "upgrade":
-        if len(args) == 0:
-            filtered_scripts = enabled_scripts
-        else:
-            filtered_scripts = [x for x in enabled_scripts if x.stem in args]
-        do_upgrade(filtered_scripts, config, args)
-    elif command == "enable":
-        _enable(config, scripts, args)
-    elif command == "disable":
-        _disable(config, scripts, args)
-    elif command == "list":
-        _list(scripts, config, args)
-    else:
-        log.error(f"Command {command} not found")
-        sys.exit(1)
+            log.error(f"Command {entry} not found")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
-    main(args.command, args.args)
+    # main(args.command, args.args)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-c", "--config", type=str, default=None, help="config file path")
+    parser.add_argument("command", type=str, help="command to run")
+    parser.add_argument("args", nargs=argparse.REMAINDER, help="args for command")
+    args = parser.parse_args()
+
+    mapo = Mapo(args)
+    mapo.run()

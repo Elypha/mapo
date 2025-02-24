@@ -8,17 +8,13 @@ import httpx
 import orjson
 from rich import progress
 
-from lib.helper import client, grant, single_install_move, single_uninstall, single_update, update_link
-from lib.log import LogLevel, console, log, log_error, log_list, log_title
+from lib.helper import client, grant, download_helper, single_uninstall, update_helper_github, symlink_latest
+from lib.log import LogLevel, console, log, log_error, print_list, print_title
+from lib.config import MapoConfig, Script
 
 
-def update(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
-    github_repo = "EFForg/apkeep"
-    args = {
-        "url": f"https://api.github.com/repos/{github_repo}/releases/latest",
-        "regex_version": re.compile(r"(?P<version>(\d|\.)+)"),
-    }
-    asset_mapping = {
+def update(ipc_dict: dict, config: MapoConfig, task: dict) -> dict:
+    asset_by_os = {
         "Linux": {
             "x86_64": r"^apkeep-x86_64-unknown-linux-gnu$",
         },
@@ -26,25 +22,26 @@ def update(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict
             "AMD64": r"^apkeep-x86_64-pc-windows-msvc.exe$",
         },
     }
-    args["regex_asset"] = re.compile(asset_mapping[platform.system()][platform.machine()])
-
-    single_update(_p_stats, task_id, script, config, cache, args)
-
-
-def install(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
     args = {
-        "save_name": f"{script.stem}" + (".exe" if platform.system() == "Windows" else ""),
+        "url": "https://api.github.com/repos/EFForg/apkeep/releases/latest",
+        "regex_version": re.compile(r"(?P<version>[\d.]+)"),
+        "regex_asset": re.compile(asset_by_os[platform.system()][platform.machine()]),
     }
-    single_install_move(_p_stats, task_id, script, config, cache, args)
-    # permissions
+    v0, v1 = update_helper_github(ipc_dict, config, task, args)
+    return {"name": task["name"], "v0": v0, "v1": v1}
+
+
+def upgrade(ipc_dict: dict, config: MapoConfig, task: dict) -> dict:
+    # download
+    dl_file_path = download_helper(ipc_dict, config, task)
+    # install
+    file_path = dl_file_path.rename(dl_file_path.with_stem("apkeep"))
     if platform.system() == "Linux":
-        path_app = Path(config["path"]["data"]) / script.stem
-        grant(path_app.glob("**/apkeep"), mode=0o755)
+        grant([file_path], mode=0o755)
+    symlink_latest(file_path.parent)
+    ipc_dict[task["task_id"]] = {"completed_size": ipc_dict[task["task_id"]]["total_size"], "total_size": ipc_dict[task["task_id"]]["total_size"]}
+    return {"name": task["name"], "v1": dl_file_path.parent.name}
 
 
-def uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
-    single_uninstall(_p_stats, task_id, script, config, cache)
-
-
-def upgrade(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
-    install(_p_stats, task_id, script, config, cache)
+# def uninstall(ipc_dict: dict, config: MapoConfig, task: dict) -> dict:
+#     single_uninstall(_p_stats, task_id, script, config, cache)

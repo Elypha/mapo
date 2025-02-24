@@ -1,15 +1,16 @@
-import importlib.util
 import os
 import platform
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import httpx
 import orjson
 from rich import progress
 
+from lib.config import MapoConfig, Script
 from lib.log import console, log
 
 client = httpx.Client(
@@ -17,48 +18,6 @@ client = httpx.Client(
         "User-Agent": f"Mapo/0.1 (Python {platform.python_version()}, httpx/{httpx.__version__}; {platform.system()} {platform.release()}) +github.com/Elypha/Mapo",
     }
 )
-
-
-class Cache(dict):
-    def __init__(self, cache_file: Path):
-        self.file = cache_file
-        if not self.file.parent.exists():
-            self.file.parent.mkdir(parents=True, exist_ok=True)
-        if not self.file.exists():
-            self.data = {}
-            self.save()
-        self.load()
-
-    def load(self):
-        with open(self.file, "rb") as f:
-            self.data = orjson.loads(f.read())
-
-    def save(self):
-        with open(self.file, "wb") as f:
-            f.write(orjson.dumps(self.data, option=orjson.OPT_INDENT_2))
-
-    # setter
-    def __setitem__(self, key, value):
-        self.data[key] = value
-
-    # getter
-    def __getitem__(self, key):
-        if key in self.data:
-            return self.data[key]
-        else:
-            return None
-
-    # deleter
-    def __delitem__(self, key):
-        del self.data[key]
-
-    # iterator
-    def __iter__(self):
-        return iter(self.data)
-
-    # length
-    def __len__(self):
-        return len(self.data)
 
 
 class SummaryProgress(progress.Progress):
@@ -93,92 +52,84 @@ class SummaryProgress(progress.Progress):
             yield self.make_tasks_table([task])
 
 
-def load_script(script: Path):
-    name = f"{script.stem}"
-    spec = importlib.util.spec_from_file_location(name, str(script))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def update_link(target: Path, name: str = "latest"):
+def symlink_latest(target: Path, name: str = "latest"):
     path_latest = target.parent / name
     if path_latest.exists():
         path_latest.unlink()
     path_latest.symlink_to(target, target_is_directory=True)
 
 
-def single_update(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict, args: dict):
-    # args
+def update_helper_github(ipc_dict: dict, config: MapoConfig, task: dict, args: dict) -> tuple[str, str]:
+    # supports:
+    # api.github.com
+    #
+    # args:
     url: str = args["url"]
     regex_asset: re.Pattern = args["regex_asset"]
-    regex_version: re.Pattern = args["regex_version"]
+    regex_version: re.Pattern = args["regex_version"]  # use group: version
+
+    script: Script = task["data"]["script"]
 
     # fetch remote
-    _p_stats[task_id] = (0, 2)
+    ipc_dict[task["task_id"]] = {"completed_size": 0, "total_size": 2}
     response = client.get(url, follow_redirects=True)
-    response.raise_for_status()
 
     # process data
-    _p_stats[task_id] = (1, 2)
+    ipc_dict[task["task_id"]] = {"completed_size": 1, "total_size": 2}
+    response.raise_for_status()
     data = response.json()
+    if isinstance(data, list):
+        data = data[0]
 
-    # [+] github
-    if "api.github.com" in url:
-        if isinstance(data, list):
-            data = data[0]
-        # remote version
-        remote_version = regex_version.search(data["tag_name"]).group("version")
-        if remote_version is None:
-            log.error(f"no matching remote_version for {script.stem}")
-            sys.exit(1)
-        cache["remote_version"] = remote_version
-        # download_url
-        download_url = None
-        for asset in data["assets"]:
-            if regex_asset.match(asset["name"]):
-                download_url = asset["browser_download_url"]
-                break
-        if download_url is None:
-            log.error(f"no matching download_url for {script.stem}@{remote_version}")
-            sys.exit(1)
-        cache["download_url"] = download_url
+    # remote version
+    remote_version = regex_version.search(data["tag_name"]).group("version")
+    if remote_version is None:
+        log.error(f"{task['name']}: no matched version")
+        exit(1)
+    old_remote_version = script.cache.get("remote_version", None)
+    script.cache["remote_version"] = remote_version
 
-    # finish
-    cache.save()
-    _p_stats[task_id] = (2, 2)
+    # download_url
+    for asset in data["assets"]:
+        if regex_asset.match(asset["name"]):
+            download_url = asset["browser_download_url"]
+            break
+    else:
+        log.error(f"{task['name']}: no matched download_url")
+        exit(1)
+    script.cache["download_url"] = download_url
+
+    script.save_cache()
+    ipc_dict[task["task_id"]] = {"completed_size": 2, "total_size": 2}
+
+    return (old_remote_version, script.cache["remote_version"])
 
 
-def single_install_move(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict, args: dict):
-    # args
-    save_name: str = args["save_name"]
+def download_helper(ipc_dict: dict, config: MapoConfig, task: dict) -> Path:
+    script: Script = task["data"]["script"]
 
-    # prepare remote dir
-    _p_stats[task_id] = (0, 1)
-    path_app = Path(config["path"]["data"]) / script.stem
-    path_remote = path_app / cache["remote_version"]
-    path_remote.mkdir(parents=True)
+    dl_file_dir: Path = script.app_path / script.cache["remote_version"]
+    dl_file_dir.mkdir(parents=True, exist_ok=True)
+    ext = script.cache["download_url"].split(".")[-1]
+    dl_file_path = dl_file_dir / f"dl_{script.cache['remote_version']}.{ext}"
+    dl_file_path.unlink(missing_ok=True)
 
     # download
-    path_tempFile = path_app / f"temp_{cache['remote_version']}"
-    path_tempFile.unlink(missing_ok=True)
-    with open(path_tempFile, "wb") as f:
-        with client.stream("GET", cache["download_url"], follow_redirects=True) as response:
+    with open(dl_file_path, "wb") as f:
+        ipc_dict[task["task_id"]] = {"completed_size": 0, "total_size": 1}
+        with client.stream("GET", script.cache["download_url"], follow_redirects=True) as response:
             if "Content-Length" in response.headers:
                 total = int(response.headers["Content-Length"]) + 1
                 for chunk in response.iter_bytes():
                     f.write(chunk)
-                    _p_stats[task_id] = (response.num_bytes_downloaded, total)
+                    ipc_dict[task["task_id"]] = {"completed_size": response.num_bytes_downloaded, "total_size": total}
             else:
                 for chunk in response.iter_bytes():
                     f.write(chunk)
                     total = response.num_bytes_downloaded
-                    _p_stats[task_id] = (total, total + 1)
+                    ipc_dict[task["task_id"]] = {"completed_size": total, "total_size": total + 1}
 
-    # install
-    path_tempFile.rename(path_remote / save_name)
-    update_link(path_remote)
-    _p_stats[task_id] = (total + 1, total + 1)
+    return dl_file_path
 
 
 def single_uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
@@ -200,3 +151,12 @@ def grant(files: list[Path], user: int = None, group: int = None, mode: int = No
             file.resolve().chown(user, group)
         if mode is not None:
             file.resolve().chmod(mode)
+
+
+def extract(archive_path: Path, target_dir: Path = None, remove_archive: bool = True):
+    # extract
+    target_dir = target_dir or archive_path.parent
+    shutil.unpack_archive(archive_path, target_dir)
+    # remove archive
+    if remove_archive:
+        archive_path.unlink()
