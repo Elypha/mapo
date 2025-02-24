@@ -9,15 +9,7 @@ from typing import Callable
 from rich import progress
 
 from lib.config import MapoConfig, Script
-
-
-def import_script(script: Script, target: str) -> Callable[..., dict]:
-    name = f"{script.name}"
-    spec = importlib.util.spec_from_file_location(name, script.script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    action = eval(f"module.{target}")
-    return action
+from lib.helper import import_script
 
 
 def task_runner(ipc_dict: dict, config: MapoConfig, task: dict) -> dict:

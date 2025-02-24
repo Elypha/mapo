@@ -1,10 +1,14 @@
+import importlib.util
+import multiprocessing
 import os
 import platform
 import re
 import shutil
 import sys
 import time
+from concurrent.futures import Future, ProcessPoolExecutor
 from pathlib import Path
+from typing import Callable
 
 import httpx
 import orjson
@@ -18,45 +22,6 @@ client = httpx.Client(
         "User-Agent": f"Mapo/0.1 (Python {platform.python_version()}, httpx/{httpx.__version__}; {platform.system()} {platform.release()}) +github.com/Elypha/Mapo",
     }
 )
-
-
-class SummaryProgress(progress.Progress):
-    def get_renderables(self):
-        for task in self.tasks:
-            if task.fields.get("progress_type") == "summary":
-                self.columns = (
-                    progress.TextColumn(
-                        "[aquamarine3]Downloading file" + ("s" if task.total > 1 else ""),
-                        justify="right",
-                    ),
-                    progress.BarColumn(bar_width=None),
-                    "[progress.percentage][steel_blue1]{task.percentage:>3.1f}%",
-                    "•",
-                    progress.TextColumn(
-                        "[aquamarine3]{task.completed} of {task.total} completed",
-                        justify="right",
-                    ),
-                )
-            if task.fields.get("progress_type") == "download":
-                self.columns = (
-                    progress.TextColumn("[blue]{task.description}", justify="right"),
-                    progress.BarColumn(bar_width=None),
-                    "[progress.percentage][steel_blue3]{task.percentage:>3.1f}%",
-                    "•",
-                    progress.DownloadColumn(),
-                    "•",
-                    progress.TransferSpeedColumn(),
-                    "•",
-                    progress.TimeRemainingColumn(),
-                )
-            yield self.make_tasks_table([task])
-
-
-def symlink_latest(target: Path, name: str = "latest"):
-    path_latest = target.parent / name
-    if path_latest.exists():
-        path_latest.unlink()
-    path_latest.symlink_to(target, target_is_directory=True)
 
 
 def update_helper_github(ipc_dict: dict, config: MapoConfig, task: dict, args: dict) -> tuple[str, str]:
@@ -110,8 +75,9 @@ def download_helper(ipc_dict: dict, config: MapoConfig, task: dict) -> Path:
 
     dl_file_dir: Path = script.app_path / script.cache["remote_version"]
     dl_file_dir.mkdir(parents=True, exist_ok=True)
-    ext = script.cache["download_url"].split(".")[-1]
-    dl_file_path = dl_file_dir / f"dl_{script.cache['remote_version']}.{ext}"
+
+    _ext = script.cache["download_url"].split(".")[-1]
+    dl_file_path = dl_file_dir / f"dl_{script.cache['remote_version']}.{_ext}"
     dl_file_path.unlink(missing_ok=True)
 
     # download
@@ -138,6 +104,54 @@ def single_uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, c
 
     # uninstall
     shutil.rmtree(path_app)
+
+
+class SummaryProgress(progress.Progress):
+    def get_renderables(self):
+        for task in self.tasks:
+            if task.fields.get("progress_type") == "summary":
+                self.columns = (
+                    progress.TextColumn(
+                        "[aquamarine3]Downloading file" + ("s" if task.total > 1 else ""),
+                        justify="right",
+                    ),
+                    progress.BarColumn(bar_width=None),
+                    "[progress.percentage][steel_blue1]{task.percentage:>3.1f}%",
+                    "•",
+                    progress.TextColumn(
+                        "[aquamarine3]{task.completed} / {task.total}",
+                        justify="right",
+                    ),
+                )
+            if task.fields.get("progress_type") == "download":
+                self.columns = (
+                    progress.TextColumn("[blue]{task.description}", justify="right"),
+                    progress.BarColumn(bar_width=None),
+                    "[progress.percentage][steel_blue3]{task.percentage:>3.1f}%",
+                    "•",
+                    progress.DownloadColumn(),
+                    "•",
+                    progress.TransferSpeedColumn(),
+                    "•",
+                    progress.TimeRemainingColumn(),
+                )
+            yield self.make_tasks_table([task])
+
+
+def import_script(script: Script, target: str) -> Callable[..., dict]:
+    name = f"{script.name}"
+    spec = importlib.util.spec_from_file_location(name, script.script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    action = eval(f"module.{target}")
+    return action
+
+
+def symlink_latest(target: Path, name: str = "latest"):
+    path_latest = target.parent / name
+    if path_latest.exists():
+        path_latest.unlink()
+    path_latest.symlink_to(target, target_is_directory=True)
 
 
 def grant(files: list[Path], user: int = None, group: int = None, mode: int = None):
