@@ -12,10 +12,10 @@ from lib.config import MapoConfig, Script
 from lib.helper import import_script
 
 
-def task_runner(ipc_dict: dict, config: MapoConfig, task: dict) -> dict:
+def task_runner(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
     try:
         action = import_script(task["data"]["script"], task["data"]["target"])
-        result = action(ipc_dict, config, task)
+        result = action(ipc_progress, config, task)
         return result
     except Exception as e:
         raise Exception(f"{task['data']}: {e=}")
@@ -24,7 +24,7 @@ def task_runner(ipc_dict: dict, config: MapoConfig, task: dict) -> dict:
 def batch_task_runner(
     p_bar: progress.Progress,
     executor: ProcessPoolExecutor,
-    ipc_dict: dict,
+    ipc_progress: dict,
     config: MapoConfig,
     tasks: list,
 ) -> list[Future]:
@@ -40,7 +40,7 @@ def batch_task_runner(
         )
         tasks[i]["task_id"] = task_id
         # add task to executor
-        futures.append(executor.submit(task_runner, ipc_dict, config, tasks[i]))
+        futures.append(executor.submit(task_runner, ipc_progress, config, tasks[i]))
     p_bar.update(task_total_progress, total=len(futures))
 
     while True:
@@ -59,12 +59,12 @@ def batch_task_runner(
             completed=len(futures_finished),
             total=len(futures),
         )
-        for task_id, data in ipc_dict.items():
+        for task_id, (p0, p1) in ipc_progress.items():
             p_bar.update(
                 task_id,
-                completed=data["completed_size"],
-                total=data["total_size"],
-                visible=data["completed_size"] < data["total_size"],
+                completed=p0,
+                total=p1,
+                visible=p0 < p1,
             )
         # stop if all futures are done
         if len(futures_finished) == len(futures):

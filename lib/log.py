@@ -104,8 +104,8 @@ def get_logger(name: str, level: Type[LogLevel] = LogLevel.TRACE) -> tuple[RichL
 log, console = get_logger("avalon", LogLevel.TRACE)
 
 
-def print_title(title: str):
-    console.print(f"\n> {title}", style="bright_cyan bold")
+def print_heading(title: str):
+    console.print(f"{title}", style="bright_cyan bold")
 
 
 def print_list(items: list[str]):

@@ -3,6 +3,7 @@ import multiprocessing
 import os
 import platform
 import re
+import subprocess
 import shutil
 import sys
 import time
@@ -24,7 +25,7 @@ client = httpx.Client(
 )
 
 
-def update_helper_github(ipc_dict: dict, config: MapoConfig, task: dict, args: dict) -> tuple[str, str]:
+def update_helper_github(ipc_progress: dict, config: MapoConfig, task: dict, args: dict) -> tuple[str, str]:
     # supports:
     # api.github.com
     #
@@ -36,11 +37,11 @@ def update_helper_github(ipc_dict: dict, config: MapoConfig, task: dict, args: d
     script: Script = task["data"]["script"]
 
     # fetch remote
-    ipc_dict[task["task_id"]] = {"completed_size": 0, "total_size": 2}
+    ipc_progress[task["task_id"]] = (0, 2)
     response = client.get(url, follow_redirects=True)
 
     # process data
-    ipc_dict[task["task_id"]] = {"completed_size": 1, "total_size": 2}
+    ipc_progress[task["task_id"]] = (1, 2)
     response.raise_for_status()
     data = response.json()
     if isinstance(data, list):
@@ -65,12 +66,12 @@ def update_helper_github(ipc_dict: dict, config: MapoConfig, task: dict, args: d
     script.cache["download_url"] = download_url
 
     script.save_cache()
-    ipc_dict[task["task_id"]] = {"completed_size": 2, "total_size": 2}
+    ipc_progress[task["task_id"]] = (2, 2)
 
     return (old_remote_version, script.cache["remote_version"])
 
 
-def download_helper(ipc_dict: dict, config: MapoConfig, task: dict) -> Path:
+def download_helper(ipc_progress: dict, config: MapoConfig, task: dict) -> Path:
     script: Script = task["data"]["script"]
 
     dl_file_dir: Path = script.app_path / script.cache["remote_version"]
@@ -82,23 +83,23 @@ def download_helper(ipc_dict: dict, config: MapoConfig, task: dict) -> Path:
 
     # download
     with open(dl_file_path, "wb") as f:
-        ipc_dict[task["task_id"]] = {"completed_size": 0, "total_size": 1}
+        ipc_progress[task["task_id"]] = (0, 1)
         with client.stream("GET", script.cache["download_url"], follow_redirects=True) as response:
             if "Content-Length" in response.headers:
                 total = int(response.headers["Content-Length"]) + 1
                 for chunk in response.iter_bytes():
                     f.write(chunk)
-                    ipc_dict[task["task_id"]] = {"completed_size": response.num_bytes_downloaded, "total_size": total}
+                    ipc_progress[task["task_id"]] = (response.num_bytes_downloaded, total)
             else:
                 for chunk in response.iter_bytes():
                     f.write(chunk)
                     total = response.num_bytes_downloaded
-                    ipc_dict[task["task_id"]] = {"completed_size": total, "total_size": total + 1}
+                    ipc_progress[task["task_id"]] = (total, total + 1)
 
     return dl_file_path
 
 
-def single_uninstall(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
+def remove_helper(_p_stats: dict, task_id: int, script: Path, config: dict, cache: dict):
     # args
     path_app = Path(config["path"]["data"]) / script.stem
 
@@ -111,15 +112,16 @@ class SummaryProgress(progress.Progress):
         for task in self.tasks:
             if task.fields.get("progress_type") == "summary":
                 self.columns = (
+                    # aquamarine3
                     progress.TextColumn(
-                        "[aquamarine3]Downloading file" + ("s" if task.total > 1 else ""),
+                        "[bright_cyan]Total task" + ("s" if task.total > 1 else ""),
                         justify="right",
                     ),
                     progress.BarColumn(bar_width=None),
                     "[progress.percentage][steel_blue1]{task.percentage:>3.1f}%",
                     "•",
                     progress.TextColumn(
-                        "[aquamarine3]{task.completed} / {task.total}",
+                        "[bright_cyan]{task.completed} / {task.total}",
                         justify="right",
                     ),
                 )
@@ -150,8 +152,19 @@ def import_script(script: Script, target: str) -> Callable[..., dict]:
 def symlink_latest(target: Path, name: str = "latest"):
     path_latest = target.parent / name
     if path_latest.exists():
-        path_latest.unlink()
+        path_latest.rmdir()
     path_latest.symlink_to(target, target_is_directory=True)
+
+
+def junction_latest(target: Path, name: str = "latest"):
+    path_latest = target.parent / name
+    if path_latest.exists():
+        path_latest.rmdir()
+    try:
+        subprocess.run(["mklink", "/J", path_latest, target], shell=True, capture_output=True, check=True)
+    except Exception as e:
+        log.exception(e)
+        exit(1)
 
 
 def grant(files: list[Path], user: int = None, group: int = None, mode: int = None):

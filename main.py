@@ -9,7 +9,7 @@ from rich import progress
 from lib.batch_task import batch_task_runner, task_runner
 from lib.config import MapoConfig, Script
 from lib.helper import SummaryProgress
-from lib.log import console, log, print_list, print_title
+from lib.log import console, log, print_heading, print_list
 
 
 class Mapo:
@@ -17,7 +17,7 @@ class Mapo:
         self._args = args
         self._config_path = self._get_config_path()
         self.config = MapoConfig(self._config_path)
-        self.scripts = [Script(x, self.config) for x in self.config.scripts_dir.glob("*.py")]
+        self._scan_scripts()
 
     def _get_config_path(self) -> Path:
         config_paths: list[Path] = []
@@ -32,6 +32,9 @@ class Mapo:
                 return x
         log.error(f"Cannot find any config file at the following paths: {config_paths}")
         exit(1)
+
+    def _scan_scripts(self) -> list[Script]:
+        self.scripts = [Script(x, self.config) for x in self.config.scripts_dir.glob("*.py")]
 
     def enable_script(self, name: str):
         if name not in self.config.valid_script_names:
@@ -61,8 +64,7 @@ class Mapo:
 
     def run_update(self, target_scripts: list[Script]):
         try:
-            # before progress bar
-            print_title(f"Checking for updates for {len(target_scripts)} scripts")
+            console.print(f"Check updates for {len(target_scripts)} scripts ...", style="white")
 
             # prepare tasks
             tasks = []
@@ -88,18 +90,31 @@ class Mapo:
             ) as p_bar:
                 with ProcessPoolExecutor(max_workers=self.config.worker_update) as executor:
                     with multiprocessing.Manager() as manager:
-                        ipc_dict = manager.dict()
-                        futures = batch_task_runner(p_bar, executor, ipc_dict, self.config, tasks)
+                        ipc_progress = manager.dict()
+                        futures = batch_task_runner(p_bar, executor, ipc_progress, self.config, tasks)
 
             # summary
             count = 0
             for future in futures:
                 result = future.result()
                 if result["v0"] != result["v1"]:
-                    console.print(f"+ {result['name']}: {result['v0']} -> {result['v1']}", style="bright_cyan")
+                    console.print(f"> {result['name']}: {result['v0']} -> {result['v1']}", style="bright_cyan")
                     count += 1
-            if count > 0:
-                console.print(f"{count} updated", style="bright_cyan")
+            if count == 0:
+                console.print("All scripts are up to date.", style="white")
+            else:
+                console.print(f"{count} scripts updated.", style="white")
+
+            # list has_update
+            count = 0
+            self._scan_scripts()
+            for x in [x for x in self.scripts if x.has_update]:
+                console.print(f"> {x.name}: {x.local_version_latest} -> {x.cache.get('remote_version', None)}", style="bright_cyan")
+                count += 1
+            if count == 0:
+                console.print("All packages are up to date.", style="white")
+            else:
+                console.print(f"{count} packages have updates.", style="white")
 
         except Exception as e:
             log.exception(e)
@@ -107,8 +122,7 @@ class Mapo:
 
     def run_upgrade(self, target_scripts: list[Script]):
         try:
-            # before progress bar
-            print_title(f"Upgrade {len(target_scripts)} scripts")
+            console.print(f"Upgrade {len(target_scripts)} scripts ...", style="white")
 
             # prepare tasks
             tasks = []
@@ -134,17 +148,17 @@ class Mapo:
             ) as p_bar:
                 with ProcessPoolExecutor(max_workers=self.config.worker_upgrade) as executor:
                     with multiprocessing.Manager() as manager:
-                        ipc_dict = manager.dict()
-                        futures = batch_task_runner(p_bar, executor, ipc_dict, self.config, tasks)
+                        ipc_progress = manager.dict()
+                        futures = batch_task_runner(p_bar, executor, ipc_progress, self.config, tasks)
 
             # summary
             count = 0
             for future in futures:
                 result = future.result()
-                console.print(f"+ {result['name']}: {x.local_version_latest} -> {result['v1']}", style="bright_cyan")
+                console.print(f"> {result['name']}: {x.local_version_latest} -> {result['v1']}", style="bright_cyan")
                 count += 1
             if count > 0:
-                console.print(f"{count} updated", style="bright_cyan")
+                console.print(f"{count} packages updated", style="white")
 
         except Exception as e:
             log.exception(e)
@@ -159,12 +173,6 @@ class Mapo:
                 self.run_update(self.scripts)
             else:
                 self.run_update([x for x in self.scripts if x.enabled])
-        # elif entry == "install":
-        #     if len(args) == 0:
-        #         filtered_scripts = [x for x in self.config.scripts if x.enabled]
-        #     else:
-        #         filtered_scripts = [x for x in self.config.scripts if x.name in args]
-        #     do_install(filtered_scripts, self.config, args)
         elif entry == "upgrade":
             if len(args) == 0:
                 self.run_upgrade([x for x in self.scripts if x.enabled and x.has_update])
