@@ -12,14 +12,17 @@ from lib.config import MapoConfig, Script
 from lib.helper import client, download_helper, extract, grant, link_latest, remove_helper, update_helper_github
 from lib.log import LogLevel, console, log, log_error, print_list, print_heading
 
+# https://github.com/notscuffed/repkg
+
 
 def update(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
+    GITHUB_REPO = "notscuffed/repkg"
     args = {
-        "url": "https://api.github.com/repos/notscuffed/repkg/releases/latest",
-        # RePKG.zip
-        "regex_asset": re.compile(r"^RePKG\.zip$"),
+        "url": f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
         # v0.3.2-alpha
         "regex_version": re.compile(r"(?P<version>[\d.\-\w]+)"),
+        # RePKG.zip
+        "regex_asset": re.compile(r"^RePKG\.zip$"),
     }
     v0, v1 = update_helper_github(ipc_progress, config, task, args)
     return {"name": task["name"], "v0": v0, "v1": v1}
@@ -31,7 +34,7 @@ def upgrade(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
     VERSION_DIR = dl_file_path.parent
     # install
     extract(dl_file_path)
-    # file_path = VERSION_DIR.glob("ncmdump*", case_sensitive=False)
+    # finish
     link_latest(VERSION_DIR)
     ipc_progress[task["task_id"]] = (ipc_progress[task["task_id"]][1], ipc_progress[task["task_id"]][1])
     return {"name": task["name"], "v1": VERSION_DIR.name}

@@ -151,15 +151,15 @@ def import_script(script: Script, target: str) -> Callable[..., dict]:
 
 def symlink_latest(target: Path, name: str = "latest"):
     path_latest = target.parent / name
-    if path_latest.exists():
-        path_latest.rmdir()
+    if path_latest.exists(follow_symlinks=False):
+        path_latest.unlink()
     path_latest.symlink_to(target, target_is_directory=True)
 
 
 def junction_latest(target: Path, name: str = "latest"):
     path_latest = target.parent / name
-    if path_latest.exists():
-        path_latest.rmdir()
+    if path_latest.exists(follow_symlinks=False):
+        path_latest.unlink()
     try:
         subprocess.run(["mklink", "/J", path_latest, target], shell=True, capture_output=True, check=True)
     except Exception as e:

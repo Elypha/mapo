@@ -12,12 +12,15 @@ from lib.config import MapoConfig, Script
 from lib.helper import client, download_helper, grant, link_latest, remove_helper, update_helper_github
 from lib.log import LogLevel, console, log, log_error, print_list, print_heading
 
+# https://github.com/crimera/revanced-integrations
+
 
 def update(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
+    GITHUB_REPO = "crimera/revanced-integrations"
     args = {
-        "url": "https://api.github.com/repos/crimera/revanced-integrations/releases/latest",
-        "regex_asset": re.compile(r"^revanced-integrations-.+\.apk$"),
+        "url": f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
         "regex_version": re.compile(r"(?P<version>[\d.]+)"),
+        "regex_asset": re.compile(r"^revanced-integrations-.+\.apk$"),
     }
     v0, v1 = update_helper_github(ipc_progress, config, task, args)
     return {"name": task["name"], "v0": v0, "v1": v1}
@@ -26,9 +29,11 @@ def update(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
 def upgrade(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
     # download
     dl_file_path = download_helper(ipc_progress, config, task)
+    VERSION_DIR = dl_file_path.parent
     # install
     file_path = dl_file_path.rename(dl_file_path.with_stem("revanced-integrations"))
-    link_latest(file_path.parent)
+    # finish
+    link_latest(VERSION_DIR)
     ipc_progress[task["task_id"]] = (ipc_progress[task["task_id"]][1], ipc_progress[task["task_id"]][1])
     return {"name": task["name"], "v1": dl_file_path.parent.name}
 
