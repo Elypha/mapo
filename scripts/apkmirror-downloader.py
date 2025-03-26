@@ -42,7 +42,9 @@ def upgrade(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
     dl_file_path = download_helper(ipc_progress, config, task)
     VERSION_DIR = dl_file_path.parent
     # install
-
+    file_path = dl_file_path.rename(dl_file_path.with_stem("apkmd"))
+    if platform.system() == "Linux":
+        grant([file_path], mode=0o755)
     # finish
     link_latest(VERSION_DIR)
     ipc_progress[task["task_id"]] = (ipc_progress[task["task_id"]][1], ipc_progress[task["task_id"]][1])
