@@ -10,10 +10,10 @@ class Script:
         self.enabled = True if self.name in config.enabled_scripts else False
 
         self.script_path = script_path
-        self.cache_path = config.mapo_dir / "cache" / self.script_path.relative_to(config.mapo_dir / "scripts").with_suffix(".json")
+        self.cache_path = config.path_home / "cache" / self.script_path.relative_to(config.path_home / "scripts").with_suffix(".json")
         self.load_cache()
 
-        self.app_path = config.userdata_dir / self.script_path.stem
+        self.app_path = config.path_data / self.script_path.stem
         self.app_path_latest = self.app_path / "latest"
         if not self.app_path.exists():
             self.local_versions = []
@@ -49,18 +49,18 @@ class MapoConfig:
                 self.enabled_scripts.add(x)
 
     def scan_valid_script_names(self):
-        self.valid_script_names = [x.stem for x in self.scripts_dir.glob("*.py")]
+        self.valid_script_names = [x.stem for x in self.path_scripts.glob("*.py")]
 
     def load(self):
         with open(self._config_path, "r", encoding="utf8") as f:
             self._config = tomlkit.parse(f.read())
 
-        self.mapo_dir = Path(self._config["path"]["mapo_dir"]).resolve()
-        self.userdata_dir = Path(self._config["path"]["userdata_dir"]).resolve()
-        self.scripts_dir = self.mapo_dir / "scripts"
-        self.cache_dir = self.mapo_dir / "cache"
-        self.worker_update = self._config["worker"]["update"]
-        self.worker_upgrade = self._config["worker"]["upgrade"]
+        self.path_home = Path(self._config["path"]["home"]).resolve()
+        self.path_data = Path(self._config["path"]["data"]).resolve()
+        self.path_scripts = self.path_home / "scripts"
+        self.path_cache = self.path_home / "cache"
+        self.n_worker_update = self._config["worker"]["update"]
+        self.n_worker_upgrade = self._config["worker"]["upgrade"]
         self.scan_valid_script_names()
         self.validate()
 

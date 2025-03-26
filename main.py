@@ -34,7 +34,7 @@ class Mapo:
         exit(1)
 
     def _scan_scripts(self) -> list[Script]:
-        self.scripts = [Script(x, self.config) for x in self.config.scripts_dir.glob("*.py")]
+        self.scripts = [Script(x, self.config) for x in self.config.path_scripts.glob("*.py")]
 
     def enable_script(self, name: str):
         if name not in self.config.valid_script_names:
@@ -88,7 +88,7 @@ class Mapo:
                 progress.TimeElapsedColumn(),
                 refresh_per_second=5,
             ) as p_bar:
-                with ProcessPoolExecutor(max_workers=self.config.worker_update) as executor:
+                with ProcessPoolExecutor(max_workers=self.config.n_worker_update) as executor:
                     with multiprocessing.Manager() as manager:
                         ipc_progress = manager.dict()
                         futures = batch_task_runner(p_bar, executor, ipc_progress, self.config, tasks)
@@ -146,7 +146,7 @@ class Mapo:
                 progress.TimeElapsedColumn(),
                 refresh_per_second=5,
             ) as p_bar:
-                with ProcessPoolExecutor(max_workers=self.config.worker_upgrade) as executor:
+                with ProcessPoolExecutor(max_workers=self.config.n_worker_upgrade) as executor:
                     with multiprocessing.Manager() as manager:
                         ipc_progress = manager.dict()
                         futures = batch_task_runner(p_bar, executor, ipc_progress, self.config, tasks)
@@ -200,11 +200,10 @@ class Mapo:
 
 
 if __name__ == "__main__":
-    # main(args.command, args.args)
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", type=str, default=None, help="config file path")
-    parser.add_argument("command", type=str, help="command to run")
-    parser.add_argument("args", nargs=argparse.REMAINDER, help="args for command")
+    parser.add_argument("command", type=str, help="[update, upgrade, enable, disable, list, show]")
+    parser.add_argument("args", nargs=argparse.REMAINDER, help="[--all, -a] or [script names]")
     args = parser.parse_args()
 
     mapo = Mapo(args)

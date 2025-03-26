@@ -77,8 +77,8 @@ def download_helper(ipc_progress: dict, config: MapoConfig, task: dict) -> Path:
     dl_file_dir: Path = script.app_path / script.cache["remote_version"]
     dl_file_dir.mkdir(parents=True, exist_ok=True)
 
-    _ext = script.cache["download_url"].split(".")[-1]
-    dl_file_path = dl_file_dir / f"dl_{script.cache['remote_version']}.{_ext}"
+    dl_uri = Path(script.cache["download_url"])
+    dl_file_path = dl_file_dir / f"dl_{dl_uri.name}"
     dl_file_path.unlink(missing_ok=True)
 
     # download
@@ -164,6 +164,16 @@ def junction_latest(target: Path, name: str = "latest"):
         subprocess.run(["mklink", "/J", path_latest, target], shell=True, capture_output=True, check=True)
     except Exception as e:
         log.exception(e)
+        exit(1)
+
+
+def link_latest(target: Path, name: str = "latest"):
+    if platform.system() == "Windows":
+        junction_latest(target, name)
+    elif platform.system() == "Linux":
+        symlink_latest(target, name)
+    else:
+        log.error(f"Unsupported platform: {platform.system()}")
         exit(1)
 
 

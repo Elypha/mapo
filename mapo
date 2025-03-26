@@ -1,0 +1,11 @@
+#!/bin/bash
+
+MAPO_HOME_DIR=/home/projects/mapo
+MAPO_CONFIG=/home/elypha/config/mapo.toml
+
+/root/.local/bin/uv \
+    --project $MAPO_HOME_DIR \
+    run \
+    $MAPO_HOME_DIR/main.py \
+    --config $MAPO_CONFIG \
+    "$@"

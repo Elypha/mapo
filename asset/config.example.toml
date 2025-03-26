@@ -1,7 +1,8 @@
 [path]
-# your data path where all scripts will install to
+# app installation path
 data = "/home/mapo"
-home = "/usr/local/mapo"
+# mapo programme path
+home = "/home/projects/mapo"
 
 [worker]
 update = 4

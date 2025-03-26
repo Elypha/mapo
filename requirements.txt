@@ -1,0 +1,7 @@
+# uv add -r requirements.txt
+
+git+https://github.com/Elypha/maid
+
+orjson
+tomlkit
+httpx[brotli,http2,socks,zstd]

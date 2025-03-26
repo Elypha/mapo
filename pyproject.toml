@@ -1,0 +1,15 @@
+[project]
+name = "mapo"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx[brotli,http2,socks,zstd]>=0.28.1",
+    "maid",
+    "orjson>=3.10.16",
+    "tomlkit>=0.13.2",
+]
+
+[tool.uv.sources]
+maid = { git = "https://github.com/Elypha/maid" }

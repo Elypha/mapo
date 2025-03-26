@@ -9,7 +9,7 @@ import orjson
 from rich import progress
 
 from lib.config import MapoConfig, Script
-from lib.helper import client, download_helper, extract, grant, junction_latest, remove_helper, symlink_latest, update_helper_github
+from lib.helper import client, download_helper, extract, grant, link_latest, remove_helper, update_helper_github
 from lib.log import LogLevel, console, log, log_error, print_list, print_heading
 
 
@@ -32,7 +32,7 @@ def upgrade(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
     # install
     extract(dl_file_path)
     file_path = VERSION_DIR.glob("ncmdump*", case_sensitive=False)
-    junction_latest(VERSION_DIR)
+    link_latest(VERSION_DIR)
     ipc_progress[task["task_id"]] = (ipc_progress[task["task_id"]][1], ipc_progress[task["task_id"]][1])
     return {"name": task["name"], "v1": VERSION_DIR.name}
 

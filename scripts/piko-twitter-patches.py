@@ -9,7 +9,7 @@ import orjson
 from rich import progress
 
 from lib.config import MapoConfig, Script
-from lib.helper import client, download_helper, grant, junction_latest, remove_helper, symlink_latest, update_helper_github
+from lib.helper import client, download_helper, grant, link_latest, remove_helper, update_helper_github
 from lib.log import LogLevel, console, log, log_error, print_list, print_heading
 
 
@@ -28,7 +28,7 @@ def upgrade(ipc_progress: dict, config: MapoConfig, task: dict) -> dict:
     dl_file_path = download_helper(ipc_progress, config, task)
     # install
     file_path = dl_file_path.rename(dl_file_path.with_stem("piko-twitter-patches"))
-    junction_latest(file_path.parent)
+    link_latest(file_path.parent)
     ipc_progress[task["task_id"]] = (ipc_progress[task["task_id"]][1], ipc_progress[task["task_id"]][1])
     return {"name": task["name"], "v1": dl_file_path.parent.name}
 
