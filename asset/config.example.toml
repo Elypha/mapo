@@ -2,7 +2,7 @@
 # app installation path
 data = "/home/mapo"
 # mapo programme path
-home = "/home/projects/mapo"
+home = "/home/elypha/projects/mapo"
 
 [worker]
 update = 4

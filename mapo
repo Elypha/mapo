@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MAPO_HOME_DIR=/home/projects/mapo
+MAPO_HOME_DIR=/home/elypha/projects/mapo
 MAPO_CONFIG=/home/elypha/config/mapo.toml
 
 /root/.local/bin/uv \
